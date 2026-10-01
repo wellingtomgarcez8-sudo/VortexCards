@@ -1,0 +1,10 @@
+{
+  "starting_hand": 7,
+  "max_players": 6,
+  "score_limit": 500,
+  "allow_special_on_any_card": true,
+  "draw_then_play": true,
+  "colored_special_copies": 2,
+  "wild_copies": 4,
+  "wild_draw_four_copies": 4
+}
