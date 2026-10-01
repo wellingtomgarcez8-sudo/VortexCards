@@ -24,6 +24,7 @@ class GameServer:
         self.sessions: dict[str, ClientSession] = {}
         self.engine: GameEngine | None = None
         self.server: asyncio.AbstractServer | None = None
+        self.host_player_id: str | None = None
 
     async def start(self):
         self.server = await asyncio.start_server(self._accept, self.host, self.port)
@@ -60,6 +61,8 @@ class GameServer:
                     player = PlayerState(player_id, name)
                     token = secrets.token_urlsafe(32)
                     self.sessions[player_id] = ClientSession(player, writer, token)
+                    if self.host_player_id is None:
+                        self.host_player_id = player_id
                     await self._send(writer, "ROOM_STATE", self._room_state() | {"player_id": player_id, "reconnect_token": token})
                     await self._broadcast_room()
                 elif not player_id:
@@ -68,6 +71,8 @@ class GameServer:
                     self.sessions[player_id].player.ready = bool(p.get("ready", True))
                     await self._broadcast_room()
                 elif t == "START_GAME":
+                    if player_id != self.host_player_id:
+                        raise RuleError("Apenas o host pode iniciar a partida")
                     if len(self.sessions) < 2:
                         raise RuleError("São necessários ao menos dois jogadores")
                     players = [s.player for s in self.sessions.values()]
@@ -105,7 +110,14 @@ class GameServer:
             if player_id in self.sessions:
                 self.sessions[player_id].player.connected = False
                 self.sessions.pop(player_id, None)
-                await self._broadcast_room()
+                if player_id == self.host_player_id:
+                    self.host_player_id = None
+                    for sess in self.sessions.values():
+                        await self._send(sess.writer, "ERROR", {"message": "O host encerrou a sala"})
+                        sess.writer.close()
+                    self.sessions.clear()
+                else:
+                    await self._broadcast_room()
             writer.close()
             try:
                 await writer.wait_closed()
@@ -117,6 +129,7 @@ class GameServer:
             "room_name": self.room_name,
             "room_code": self.room_code,
             "max_players": self.max_players,
+            "host_player_id": self.host_player_id,
             "players": [{"player_id": s.player.player_id, "name": s.player.name, "ready": s.player.ready} for s in self.sessions.values()],
         }
 
